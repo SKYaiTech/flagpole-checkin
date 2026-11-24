@@ -1,0 +1,13 @@
+# ใช้กับ Supabase CLI: npx supabase functions deploy
+# ปิดการตรวจ JWT ที่ประตูหน้า เพราะแต่ละฟังก์ชันตรวจสิทธิ์ผู้ใช้เองในโค้ดอยู่แล้ว
+# (จำเป็น เพราะหน้า login ยังไม่มี token ของผู้ใช้)
+project_id = "teacher-attendance"
+
+[functions.auth]
+verify_jwt = false
+
+[functions.teacher]
+verify_jwt = false
+
+[functions.admin]
+verify_jwt = false

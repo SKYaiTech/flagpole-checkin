@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>ตั้งรหัสผ่านใหม่</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="teacher" style="padding-bottom:0">
+  <div class="auth-wrap"><div class="auth-card" id="card"><div class="splash">กำลังตรวจสอบลิงก์…</div></div></div>
+  <div id="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/common.js"></script>
+  <script>
+  // หน้านี้เปิดจากลิงก์ในอีเมล (ใช้ได้ทั้งครูและผู้ดูแลระบบ) — ไม่เก็บ session ไว้ในเครื่อง
+  (() => {
+    const { cfg, $, esc, callFn, setBusy } = App;
+    const sb = App.makeClient("attendance-reset-auth", true, false);
+    const card = document.getElementById("card");
+    let session = null, shown = false;
+
+    const hashErr = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_description")
+      || new URLSearchParams(location.search).get("error_description");
+
+    function invalid(reason) {
+      shown = true;
+      card.innerHTML = `<div class="logo">⚠️</div><h1>ลิงก์ใช้ไม่ได้</h1>
+        <p class="center">${esc(reason || "ลิงก์หมดอายุหรือถูกใช้ไปแล้ว")}</p>
+        <p class="center muted small">กรุณากลับไปหน้าเข้าสู่ระบบ แล้วกด "ลืมรหัสผ่าน" เพื่อขอลิงก์ใหม่ (ลิงก์ใช้ได้ครั้งเดียว และมีอายุจำกัด)</p>
+        <a class="btn btn-primary btn-block" href="${cfg.LIFF_ID ? "https://liff.line.me/" + encodeURIComponent(cfg.LIFF_ID) : "index.html"}">ไปหน้าเข้าสู่ระบบ</a>`;
+    }
+    function showForm() {
+      if (shown) return; shown = true;
+      card.innerHTML = `<div class="logo">🔑</div><h1>ตั้งรหัสผ่านใหม่</h1>
+        <form id="f">
+          <label for="np">รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
+          <div class="pw"><input id="np" type="password" autocomplete="new-password"><button type="button" id="tg">แสดง</button></div>
+          <label for="np2">ยืนยันรหัสผ่านใหม่</label>
+          <input id="np2" type="password" autocomplete="new-password">
+          <div id="msg"></div>
+          <button class="btn btn-primary btn-block mt" id="btn">บันทึกรหัสผ่านใหม่</button>
+        </form>`;
+      $("#tg").onclick = () => { const i = $("#np"); const s = i.type === "password"; i.type = s ? "text" : "password"; $("#tg").textContent = s ? "ซ่อน" : "แสดง"; };
+      $("#f").onsubmit = async (e) => {
+        e.preventDefault();
+        const np = $("#np").value, msg = $("#msg"), btn = $("#btn");
+        const err = (t) => { msg.innerHTML = `<div class="alert alert-err">${esc(t)}</div>`; };
+        if (np.length < 8) return err("รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร");
+        if (/^\d{13}$/.test(np)) return err("ห้ามใช้เลขบัตรประชาชนเป็นรหัสผ่าน");
+        if (np !== $("#np2").value) return err("รหัสผ่านทั้งสองช่องไม่ตรงกัน");
+        setBusy(btn, true, "กำลังบันทึก…");
+        const { error } = await sb.auth.updateUser({ password: np });
+        if (error) {
+          setBusy(btn, false);
+          return err(/different from the old/i.test(error.message) ? "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม" : "บันทึกไม่สำเร็จ: " + error.message);
+        }
+        // ถ้าเป็นครู ให้ระบบรู้ว่าตั้งรหัสผ่านเองแล้ว (ถ้าเป็นผู้ดูแลจะตอบ error ซึ่งไม่เป็นไร)
+        try { await callFn("teacher", { action: "password_reset_done" }, session && session.access_token); } catch (e2) { /* ignore */ }
+        await sb.auth.signOut();
+        card.innerHTML = `<div class="logo">✅</div><h1>ตั้งรหัสผ่านเรียบร้อย</h1>
+          <p class="center">ใช้รหัสผ่านใหม่เข้าสู่ระบบได้ทันที</p>
+          <a class="btn btn-primary btn-block" href="${cfg.LIFF_ID ? "https://liff.line.me/" + encodeURIComponent(cfg.LIFF_ID) : "index.html"}">ไปหน้าเข้าสู่ระบบ</a>
+          <p class="hint center">ผู้ดูแลระบบให้เข้าที่หน้า admin.html</p>`;
+      };
+    }
+
+    if (hashErr) { invalid(/expired|invalid/i.test(hashErr) ? "ลิงก์หมดอายุหรือไม่ถูกต้อง" : hashErr); return; }
+    sb.auth.onAuthStateChange((event, s) => {
+      if (s && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) { session = s; showForm(); }
+    });
+    // ถ้าไม่มี session ภายใน 4 วินาที แสดงว่าไม่ได้เปิดมาจากลิงก์ที่ถูกต้อง
+    setTimeout(() => { if (!shown) invalid("ไม่พบข้อมูลการรีเซ็ตรหัสผ่าน กรุณาเปิดลิงก์จากอีเมลอีกครั้ง"); }, 4000);
+  })();
+  </script>
+</body>
+</html>
